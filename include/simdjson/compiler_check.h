@@ -14,7 +14,11 @@
 #endif
 
 #if (SIMDJSON_CPLUSPLUS < 201703L)
-#error simdjson requires a compiler compliant with the C++17 standard
+// #error simdjson requires a compiler compliant with the C++17 standard
+#include "nonstd/string_view.hpp"
+namespace std {
+  using string_view=nonstd::string_view;
+}
 #endif
 
 #endif // SIMDJSON_COMPILER_CHECK_H
