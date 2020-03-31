@@ -110,4 +110,15 @@ constexpr size_t DEFAULT_MAX_DEPTH = 1024;
 
 #endif // MSC_VER
 
+#if (SIMDJSON_CPLUSPLUS < 201703L)
+
+SIMDJSON_PUSH_DISABLE_ALL_WARNINGS
+#include "simdjson/nonstd/string_view.hpp"
+SIMDJSON_POP_DISABLE_WARNINGS
+
+namespace std {
+  using string_view = nonstd::string_view;
+}
+#endif
+
 #endif // SIMDJSON_COMMON_DEFS_H

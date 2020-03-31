@@ -1,4 +1,4 @@
-/* auto-generated on Tue 31 Mar 2020 17:00:28 EDT. Do not edit! */
+/* auto-generated on Tue Mar 31 16:51:15 PDT 2020. Do not edit! */
 #include "simdjson.h"
 
 /* used for http://dmalloc.com/ Dmalloc - Debug Malloc Library */
@@ -7,6 +7,38 @@
 #endif
 
 /* begin file src/simdjson.cpp */
+/* begin file src/error.cpp */
+
+namespace simdjson::internal {
+  const error_code_info error_codes[] {
+    { SUCCESS, "No error" },
+    { SUCCESS_AND_HAS_MORE, "No error and buffer still has more data" },
+    { CAPACITY, "This parser can't support a document that big" },
+    { MEMALLOC, "Error allocating memory, we're most likely out of memory" },
+    { TAPE_ERROR, "Something went wrong while writing to the tape" },
+    { DEPTH_ERROR, "The JSON document was too deep (too many nested objects and arrays)" },
+    { STRING_ERROR, "Problem while parsing a string" },
+    { T_ATOM_ERROR, "Problem while parsing an atom starting with the letter 't'" },
+    { F_ATOM_ERROR, "Problem while parsing an atom starting with the letter 'f'" },
+    { N_ATOM_ERROR, "Problem while parsing an atom starting with the letter 'n'" },
+    { NUMBER_ERROR, "Problem while parsing a number" },
+    { UTF8_ERROR, "The input is not valid UTF-8" },
+    { UNINITIALIZED, "Uninitialized" },
+    { EMPTY, "Empty: no JSON found" },
+    { UNESCAPED_CHARS, "Within strings, some characters must be escaped, we found unescaped characters" },
+    { UNCLOSED_STRING, "A string is opened, but never closed." },
+    { UNSUPPORTED_ARCHITECTURE, "simdjson does not have an implementation supported by this CPU architecture (perhaps it's a non-SIMD CPU?)." },
+    { INCORRECT_TYPE, "The JSON element does not have the requested type." },
+    { NUMBER_OUT_OF_RANGE, "The JSON number is too large or too small to fit within the requested type." },
+    { INDEX_OUT_OF_BOUNDS, "Attempted to access an element of a JSON array that is beyond its length." },
+    { NO_SUCH_FIELD, "The JSON field referenced does not exist in this object." },
+    { IO_ERROR, "Error reading the file." },
+    { INVALID_JSON_POINTER, "Invalid JSON pointer syntax." },
+    { INVALID_URI_FRAGMENT, "Invalid URI fragment syntax." },
+    { UNEXPECTED_ERROR, "Unexpected error, consider reporting this problem as you may have found a bug in simdjson" }
+  }; // error_messages[]
+}
+/* end file src/error.cpp */
 /* begin file src/implementation.cpp */
 /* begin file src/isadetection.h */
 /* From
@@ -423,6 +455,39 @@ namespace simdjson::internal { const fallback::implementation fallback_singleton
 
 namespace simdjson::internal {
 
+/**
+ * @private Detects best supported implementation on first use, and sets it
+ */
+class detect_best_supported_implementation_on_first_use final : public implementation {
+public:
+  const std::string &name() const noexcept final { return set_best()->name(); }
+  const std::string &description() const noexcept final { return set_best()->description(); }
+  uint32_t required_instruction_sets() const noexcept final { return set_best()->required_instruction_sets(); }
+  WARN_UNUSED error_code parse(const uint8_t *buf, size_t len, dom::parser &parser) const noexcept final {
+    return set_best()->parse(buf, len, parser);
+  }
+  WARN_UNUSED error_code minify(const uint8_t *buf, size_t len, uint8_t *dst, size_t &dst_len) const noexcept final {
+    return set_best()->minify(buf, len, dst, dst_len);
+  }
+  WARN_UNUSED error_code stage1(const uint8_t *buf, size_t len, dom::parser &parser, bool streaming) const noexcept final {
+    return set_best()->stage1(buf, len, parser, streaming);
+  }
+  WARN_UNUSED error_code stage2(const uint8_t *buf, size_t len, dom::parser &parser) const noexcept final {
+    return set_best()->stage2(buf, len, parser);
+  }
+  WARN_UNUSED error_code stage2(const uint8_t *buf, size_t len, dom::parser &parser, size_t &next_json) const noexcept final {
+    return set_best()->stage2(buf, len, parser, next_json);
+  }
+
+  really_inline detect_best_supported_implementation_on_first_use() noexcept : implementation("best_supported_detector", "Detects the best supported implementation and sets it", 0) {}
+private:
+  const implementation *set_best() const noexcept;
+};
+
+const detect_best_supported_implementation_on_first_use detect_best_supported_implementation_on_first_use_singleton;
+
+internal::atomic_ptr<const implementation> active_implementation{&internal::detect_best_supported_implementation_on_first_use_singleton};
+
 constexpr const std::initializer_list<const implementation *> available_implementation_pointers {
 #if SIMDJSON_IMPLEMENTATION_HASWELL
   &haswell_singleton,
@@ -486,6 +551,11 @@ const implementation *detect_best_supported_implementation_on_first_use::set_bes
 }
 
 } // namespace simdjson::internal
+
+namespace simdjson {
+ const internal::available_implementation_list available_implementations{};
+ internal::atomic_ptr<const implementation> active_implementation{&internal::detect_best_supported_implementation_on_first_use_singleton};
+}
 /* end file src/fallback/implementation.h */
 /* begin file src/stage1_find_marks.cpp */
 #if SIMDJSON_IMPLEMENTATION_ARM64
@@ -1003,17 +1073,17 @@ namespace simdjson::arm64::simd {
 
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a | mask; } );
+      return this->map( [&](simd8<T> a) { return a | mask; } );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a == mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a <= mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -1071,7 +1141,7 @@ really_inline json_character_block json_character_block::classify(const simd::si
 }
 
 really_inline bool is_ascii(simd8x64<uint8_t> input) {
-    simd8<uint8_t> bits = input.reduce([&](auto a,auto b) { return a|b; });
+    simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
     return bits.max() < 0b10000000u;
 }
 
@@ -2756,17 +2826,17 @@ namespace simdjson::haswell::simd {
 
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a | mask; } );
+      return this->map( [&](simd8<T> a) { return a | mask; } );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a == mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a <= mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -2817,7 +2887,7 @@ really_inline json_character_block json_character_block::classify(const simd::si
 }
 
 really_inline bool is_ascii(simd8x64<uint8_t> input) {
-  simd8<uint8_t> bits = input.reduce([&](auto a,auto b) { return a|b; });
+  simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
   return !bits.any_bits_set_anywhere(0b10000000u);
 }
 
@@ -4276,17 +4346,17 @@ namespace simdjson::westmere::simd {
 
     really_inline simd8x64<T> bit_or(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a | mask; } );
+      return this->map( [&](simd8<T> a) { return a | mask; } );
     }
 
     really_inline uint64_t eq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a == mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a == mask; } ).to_bitmask();
     }
 
     really_inline uint64_t lteq(const T m) const {
       const simd8<T> mask = simd8<T>::splat(m);
-      return this->map( [&](auto a) { return a <= mask; } ).to_bitmask();
+      return this->map( [&](simd8<T> a) { return a <= mask; } ).to_bitmask();
     }
   }; // struct simd8x64<T>
 
@@ -4337,7 +4407,7 @@ really_inline json_character_block json_character_block::classify(const simd::si
 }
 
 really_inline bool is_ascii(simd8x64<uint8_t> input) {
-  simd8<uint8_t> bits = input.reduce([&](auto a,auto b) { return a|b; });
+  simd8<uint8_t> bits = input.reduce([&](simd8<uint8_t> a,simd8<uint8_t> b) { return a|b; });
   return !bits.any_bits_set_anywhere(0b10000000u);
 }
 
@@ -7982,14 +8052,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -8142,14 +8212,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -9470,14 +9540,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -9630,14 +9700,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -10924,14 +10994,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -11084,14 +11154,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -12382,14 +12452,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );
@@ -12542,14 +12612,14 @@ WARN_UNUSED error_code implementation::stage2(const uint8_t *buf, size_t len, pa
   case '0': case '1': case '2': case '3': case '4':
   case '5': case '6': case '7': case '8': case '9':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], false);
       })
     );
     goto finish;
   case '-':
     FAIL_IF(
-      parser.structurals.with_space_terminated_copy([&](auto copy, auto idx) {
+      parser.structurals.with_space_terminated_copy([&](const uint8_t *copy, size_t idx) {
         return parser.parse_number(&copy[idx], true);
       })
     );

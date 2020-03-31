@@ -5,7 +5,7 @@ JSONEXAMPLES=$(ROOT)/jsonexamples
 test: quickstart twitter.json
 	./quickstart
 quickstart: quickstart.cpp simdjson.cpp simdjson.h
-	c++ -o ./quickstart quickstart.cpp simdjson.cpp -std=c++17
+	c++ -o ./quickstart quickstart.cpp simdjson.cpp
 clean:
 	rm -f simdjson.cpp simdjson.h twitter.json quickstart
 simdjson.cpp: $(SINGLEHEADER)/simdjson.cpp
